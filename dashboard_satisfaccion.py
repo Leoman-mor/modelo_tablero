@@ -613,9 +613,6 @@ with t4:
 
 # ──────── TAB 5: CLIENTES PRIORITARIOS ───────────────────
 with t5:
-    st.markdown("""<p style="font-size:12px;color:#595959;margin-bottom:8px;">
-    Registros con criterio <b>Regular/Malo</b> o NPS &lt; 8, ordenados por NPS.</p>""",
-    unsafe_allow_html=True)
     ca=[c for c in CRIT if c in dff.columns]
     mb=dff[ca].isin(["Regular","Malo"]).any(axis=1)
     mn=dff["nps"]<8
@@ -624,55 +621,293 @@ with t5:
     if crit.empty:
         st.success("No hay registros críticos para los filtros seleccionados.")
     else:
+        # ── Calcular score de riesgo por registro ────────────────
+        # Malo=-3, Regular=-1 por criterio; NPS<7=-3, NPS 7-8=-1; queja=-2
+        def score_riesgo(row):
+            s=0
+            for c in ca:
+                if row.get(c)=="Malo":    s-=3
+                elif row.get(c)=="Regular": s-=1
+            nps_v=row.get("nps")
+            if pd.notna(nps_v):
+                if nps_v<7:  s-=3
+                elif nps_v<9: s-=1
+            if row.get("tiene_quejas")=="Si": s-=2
+            return s
+
+        crit["score"]=crit.apply(score_riesgo, axis=1)
+        crit["prioridad"]=crit["score"].apply(
+            lambda s: "🔴 Alta" if s<=-5 else("🟠 Media" if s<=-2 else "🟡 Seguimiento"))
+
         def gbad(row):
             b=[f"{lb}: {row[c]}" for c,lb in CRIT.items()
                if c in row.index and row[c] in ["Regular","Malo"]]
             return " | ".join(b) if b else "—"
-        crit["Criterios Criticos"]=crit.apply(gbad,axis=1)
+        crit["criterios_mal"]=crit.apply(gbad,axis=1)
+        crit["n_mal"]=crit[ca].isin(["Malo"]).sum(axis=1)
+        crit["n_reg"]=crit[ca].isin(["Regular"]).sum(axis=1)
 
-        m1,m2,m3,m4=st.columns(4)
-        m1.metric("Registros críticos",len(crit))
-        m2.metric("NPS promedio",round(crit["nps"].mean(),1))
-        m3.metric("Empresas afectadas",crit["empresa"].nunique())
-        m4.metric("Con quejas activas",(crit["tiene_quejas"]=="Si").sum())
+        # ── KPIs de riesgo ───────────────────────────────────────
+        alta  = (crit["prioridad"]=="🔴 Alta").sum()
+        media = (crit["prioridad"]=="🟠 Media").sum()
+        seg   = (crit["prioridad"]=="🟡 Seguimiento").sum()
+        emp_af= crit["empresa"].nunique()
+
+        m1,m2,m3,m4,m5=st.columns(5)
+        m1.markdown(kpi("🔴","Prioridad Alta",str(alta),"Acción inmediata","#C00000"),
+                    unsafe_allow_html=True)
+        m2.markdown(kpi("🟠","Prioridad Media",str(media),"Revisar próxima visita","#ED7D31"),
+                    unsafe_allow_html=True)
+        m3.markdown(kpi("🟡","En Seguimiento",str(seg),"Monitorear","#FFC000"),
+                    unsafe_allow_html=True)
+        m4.markdown(kpi("🏢","Empresas Afectadas",str(emp_af),"Con al menos 1 alerta","#1F4E79"),
+                    unsafe_allow_html=True)
+        m5.markdown(kpi("⚠️","Con Quejas Activas",
+                    str((crit["tiene_quejas"]=="Si").sum()),"Requieren gestión","#9E3EA8"),
+                    unsafe_allow_html=True)
         st.markdown("<br>",unsafe_allow_html=True)
 
-        tb2=(crit[["tipo","anio","empresa","producto","nps","Criterios Criticos",
-                    "comentario_crit","tiene_quejas","razon_queja","aspectos_mejorar"]]
-             .rename(columns={"tipo":"Tipo","anio":"Año","empresa":"Empresa",
-                 "producto":"Producto","nps":"NPS","comentario_crit":"Comentario",
-                 "tiene_quejas":"Queja","razon_queja":"Razón Queja",
-                 "aspectos_mejorar":"A Mejorar"})
-             .sort_values(["NPS","Empresa"]).reset_index(drop=True))
+        # ── Fila 1: Scatter cuadrante + Ranking empresas ─────────
+        cP1,cP2=st.columns([5,7])
 
-        def cr2(row):
-            bg="#FFCCCC" if row["NPS"]<8 else ("#FCE4D6" if row.get("Queja")=="Si" else "")
-            return [f"background-color:{bg}" if bg else ""]*len(row)
-        st.dataframe(tb2.style.apply(cr2,axis=1),use_container_width=True,height=400)
-
-        cP1,cP2=st.columns(2)
         with cP1:
-            st.markdown('<p class="sec">Distribución NPS — Registros Críticos</p>',
+            st.markdown('<p class="sec">Cuadrante de Riesgo — NPS vs Criterios con Problemas</p>',
                         unsafe_allow_html=True)
-            nd=crit["nps"].dropna().astype(int).value_counts().sort_index().reset_index()
-            nd.columns=["v","n"]
-            def nc(v): return "#C00000" if v<7 else("#FFC000" if v<9 else "#375623")
-            fp1=go.Figure(go.Bar(x=nd["v"].astype(str),y=nd["n"],
-                marker_color=[nc(v) for v in nd["v"]],
-                text=nd["n"],textposition="outside"))
-            fl(fp1,280,dict(l=5,r=10,t=12,b=30))
-            fp1.update_layout(xaxis=dict(title="Valor NPS"),yaxis=dict(title="N° registros"))
-            st.plotly_chart(fp1,use_container_width=True,config={"displayModeBar":False})
+            # Agregar por empresa: NPS promedio vs total criterios malos/regulares
+            emp_risk=(crit.groupby("empresa").agg(
+                nps_prom=("nps","mean"),
+                n_mal=("n_mal","sum"),
+                n_reg=("n_reg","sum"),
+                registros=("empresa","count"),
+                tipo=("tipo","first"),
+            ).reset_index())
+            emp_risk["issues"]=emp_risk["n_mal"]*3+emp_risk["n_reg"]
+            emp_risk["nps_prom"]=emp_risk["nps_prom"].round(1)
+
+            col_quad=emp_risk["tipo"].map(TC).fillna("#595959")
+            fq=go.Figure()
+            # Zonas de fondo
+            fq.add_shape(type="rect",x0=0,y0=0,x1=15,y1=8,
+                fillcolor="#FFCCCC",opacity=0.15,line_width=0)
+            fq.add_shape(type="rect",x0=0,y0=8,x1=15,y1=10.5,
+                fillcolor="#FFFACC",opacity=0.25,line_width=0)
+            fq.add_annotation(x=12,y=5,text="⚠️ Riesgo Alto",showarrow=False,
+                font=dict(size=9,color="#C00000"),opacity=0.6)
+            fq.add_annotation(x=12,y=9.5,text="✅ Seguimiento",showarrow=False,
+                font=dict(size=9,color="#375623"),opacity=0.6)
+
+            for typ in emp_risk["tipo"].unique():
+                sub=emp_risk[emp_risk["tipo"]==typ]
+                fq.add_trace(go.Scatter(
+                    x=sub["issues"], y=sub["nps_prom"],
+                    mode="markers+text",
+                    name=typ,
+                    marker=dict(size=sub["registros"]*4+8,
+                                color=TC.get(typ,"#595959"),opacity=0.75,
+                                line=dict(width=1,color="white")),
+                    text=sub["empresa"].str[:12],
+                    textposition="top center",textfont=dict(size=7),
+                    hovertemplate=(
+                        "<b>%{text}</b><br>"
+                        "NPS prom: %{y}<br>"
+                        "Peso de problemas: %{x}<br>"
+                        "<extra></extra>"),
+                ))
+            fq.add_hline(y=9,line_dash="dash",line_color="#375623",line_width=1.5)
+            fl(fq,380,dict(l=5,r=10,t=12,b=40))
+            fq.update_layout(
+                xaxis=dict(title="Peso de problemas (Malos×3 + Regulares×1)",tickfont=dict(size=9)),
+                yaxis=dict(title="NPS Promedio",range=[4,10.8]),
+                legend=dict(orientation="h",y=-0.18,font=dict(size=9)),
+                showlegend=True,
+            )
+            st.plotly_chart(fq,use_container_width=True,config={"displayModeBar":False})
+
         with cP2:
-            st.markdown('<p class="sec">Registros Críticos por Tipo</p>',unsafe_allow_html=True)
-            ct=crit.groupby("tipo").size().reset_index(name="n")
-            fp2=go.Figure(go.Bar(x=ct["tipo"],y=ct["n"],
-                marker_color=[TC.get(t,"#595959") for t in ct["tipo"]],
-                text=ct["n"],textposition="outside"))
-            fl(fp2,280,dict(l=5,r=10,t=12,b=55))
-            fp2.update_layout(yaxis=dict(title="N° registros"),
-                xaxis=dict(tickangle=-15,tickfont=dict(size=9)))
-            st.plotly_chart(fp2,use_container_width=True,config={"displayModeBar":False})
+            st.markdown('<p class="sec">Ranking de Empresas — Índice de Riesgo (top 15)</p>',
+                        unsafe_allow_html=True)
+            emp_rank=(crit.groupby(["empresa","tipo"]).agg(
+                score_total=("score","sum"),
+                nps_prom=("nps","mean"),
+                n_registros=("empresa","count"),
+                n_quejas=("tiene_quejas",lambda x:(x=="Si").sum()),
+            ).reset_index())
+            emp_rank["nps_prom"]=emp_rank["nps_prom"].round(1)
+            emp_rank=emp_rank.sort_values("score_total").head(15)
+            emp_rank["color"]=[
+                "#C00000" if s<=-10 else ("#ED7D31" if s<=-5 else "#FFC000")
+                for s in emp_rank["score_total"]]
+            emp_rank["label"]=[
+                f"NPS {n} · {r} reg." for n,r in
+                zip(emp_rank["nps_prom"],emp_rank["n_registros"])]
+
+            fr=go.Figure(go.Bar(
+                y=emp_rank["empresa"],
+                x=emp_rank["score_total"],
+                orientation="h",
+                marker_color=emp_rank["color"],
+                text=emp_rank["label"],
+                textposition="outside",
+                textfont=dict(size=9),
+                hovertemplate="<b>%{y}</b><br>Score: %{x}<extra></extra>",
+            ))
+            fl(fr,380,dict(l=5,r=130,t=12,b=30))
+            fr.update_layout(
+                xaxis=dict(title="Score de riesgo (más negativo = más urgente)"),
+                yaxis=dict(tickfont=dict(size=9)),
+            )
+            st.plotly_chart(fr,use_container_width=True,config={"displayModeBar":False})
+
+        # ── Fila 2: Heatmap criterios x empresa ─────────────────
+        st.markdown('<p class="sec">Mapa de Calor — Criterios por Empresa (top 20 con más problemas)</p>',
+                    unsafe_allow_html=True)
+
+        # Tomar top 20 empresas con más problemas y los criterios presentes
+        top20_emp=(crit.groupby("empresa")["score"].sum()
+                   .sort_values().head(20).index.tolist())
+        heat_df=dff[dff["empresa"].isin(top20_emp)].copy()
+
+        score_map={"Excelente":4,"Bueno":3,"Regular":2,"Malo":1}
+        heat_data=[]
+        for ck,lb in CRIT.items():
+            if ck not in heat_df.columns: continue
+            for emp in top20_emp:
+                vals=heat_df[heat_df["empresa"]==emp][ck].dropna()
+                if len(vals)==0: continue
+                # Peor calificación observada para esa empresa-criterio
+                worst=vals.map(lambda v: score_map.get(v,0)).min()
+                heat_data.append({"empresa":emp,"criterio":lb,"score":worst})
+
+        if heat_data:
+            hdf=pd.DataFrame(heat_data)
+            hpivot=hdf.pivot_table(index="empresa",columns="criterio",
+                                   values="score",aggfunc="min")
+            hpivot=hpivot.reindex(index=top20_emp)
+
+            # Mapa de colores: 1=Malo(rojo), 2=Regular(naranja), 3=Bueno(verde claro), 4=Excelente(verde)
+            colorscale=[
+                [0.00,"#FFFFFF"],
+                [0.25,"#C00000"],   # Malo
+                [0.50,"#ED7D31"],   # Regular
+                [0.75,"#A9D18E"],   # Bueno
+                [1.00,"#375623"],   # Excelente
+            ]
+            label_map={1:"Malo",2:"Regular",3:"Bueno",4:"Excelente"}
+            text_heat=hpivot.applymap(lambda v: label_map.get(v,"") if pd.notna(v) else "")
+
+            fh=go.Figure(go.Heatmap(
+                z=hpivot.values,
+                x=hpivot.columns.tolist(),
+                y=hpivot.index.tolist(),
+                text=text_heat.values,
+                texttemplate="%{text}",
+                textfont=dict(size=8),
+                colorscale=colorscale,
+                zmin=1, zmax=4,
+                showscale=False,
+                hovertemplate="<b>%{y}</b><br>%{x}: <b>%{text}</b><extra></extra>",
+            ))
+            fh.update_layout(
+                height=max(320, len(top20_emp)*22),
+                margin=dict(l=5,r=5,t=10,b=80),
+                paper_bgcolor="white",
+                xaxis=dict(tickangle=-35,tickfont=dict(size=9),side="bottom"),
+                yaxis=dict(tickfont=dict(size=9),autorange="reversed"),
+                font=dict(family="Segoe UI, Arial",size=10),
+            )
+            st.plotly_chart(fh,use_container_width=True,config={"displayModeBar":False})
+            st.caption("🔴 Malo  🟠 Regular  🟢 Bueno  🌲 Excelente  (blanco = sin dato para ese criterio)")
+
+        # ── Fila 3: Tendencia 2024→2025 por empresa ─────────────
+        if len(dff["anio"].unique())>1:
+            st.markdown('<p class="sec">Tendencia NPS por Empresa — 2024 vs 2025 (empresas críticas)</p>',
+                        unsafe_allow_html=True)
+            tend_emp=(df_full[df_full["empresa"].isin(top20_emp)]
+                      .groupby(["empresa","anio"])["nps"].mean().round(1).reset_index())
+            tend_piv=tend_emp.pivot(index="empresa",columns="anio",values="nps").reset_index()
+            if 2024 in tend_piv.columns and 2025 in tend_piv.columns:
+                tend_piv=tend_piv.dropna(subset=[2024,2025])
+                tend_piv["delta"]=tend_piv[2025]-tend_piv[2024]
+                tend_piv=tend_piv.sort_values("delta")
+
+                ft=go.Figure()
+                for _,row in tend_piv.iterrows():
+                    col_arrow="#375623" if row["delta"]>=0 else "#C00000"
+                    # Línea de conexión
+                    ft.add_trace(go.Scatter(
+                        x=[row[2024],row[2025]], y=[row["empresa"],row["empresa"]],
+                        mode="lines",
+                        line=dict(color=col_arrow,width=2),
+                        showlegend=False,
+                        hoverinfo="skip",
+                    ))
+                # Puntos 2024
+                ft.add_trace(go.Scatter(
+                    x=tend_piv[2024], y=tend_piv["empresa"],
+                    mode="markers+text",name="2024",
+                    marker=dict(color="#BFBFBF",size=10,symbol="circle"),
+                    text=[str(v) for v in tend_piv[2024]],
+                    textposition="middle left",textfont=dict(size=8,color="#595959"),
+                ))
+                # Puntos 2025
+                tend_piv["arrow_col"]=tend_piv["delta"].apply(
+                    lambda d: "#375623" if d>=0 else "#C00000")
+                ft.add_trace(go.Scatter(
+                    x=tend_piv[2025], y=tend_piv["empresa"],
+                    mode="markers+text",name="2025",
+                    marker=dict(color=tend_piv["arrow_col"],size=10,symbol="circle"),
+                    text=[f"{v} ({d:+.1f})" for v,d in zip(tend_piv[2025],tend_piv["delta"])],
+                    textposition="middle right",textfont=dict(size=8),
+                ))
+                ft.add_vline(x=9,line_dash="dash",line_color="#375623",line_width=1.5,
+                             annotation_text="Meta 9",annotation_font_color="#375623")
+                fl(ft,max(320,len(tend_piv)*22),dict(l=5,r=80,t=10,b=30))
+                ft.update_layout(
+                    xaxis=dict(title="NPS Promedio",range=[5,11]),
+                    yaxis=dict(tickfont=dict(size=9),autorange="reversed"),
+                    legend=dict(orientation="h",y=-0.08,font=dict(size=10)),
+                )
+                st.plotly_chart(ft,use_container_width=True,config={"displayModeBar":False})
+
+        # ── Tabla accionable ─────────────────────────────────────
+        st.markdown("---")
+        st.markdown('<p class="sec">Lista de Acción — ordenada por Prioridad</p>',
+                    unsafe_allow_html=True)
+
+        col_f1, col_f2 = st.columns([3,9])
+        with col_f1:
+            prio_f=st.selectbox("Filtrar prioridad",
+                ["Todas","🔴 Alta","🟠 Media","🟡 Seguimiento"],key="prio_f")
+        with col_f2:
+            st.markdown("""<div style="font-size:11px;color:#595959;padding-top:28px;">
+            <b>Score de riesgo:</b> Malo×3 + Regular×1 + NPS&lt;7 (+3pts) + NPS&lt;9 (+1pt) + Queja (+2pts)
+            </div>""",unsafe_allow_html=True)
+
+        tb_accion=crit.copy()
+        if prio_f!="Todas": tb_accion=tb_accion[tb_accion["prioridad"]==prio_f]
+
+        tb_show=(tb_accion[["prioridad","empresa","tipo","anio","producto","nps",
+                             "score","criterios_mal","tiene_quejas","aspectos_mejorar",
+                             "comentario_crit"]]
+                 .rename(columns={
+                     "prioridad":"Prioridad","empresa":"Empresa","tipo":"Tipo",
+                     "anio":"Año","producto":"Producto","nps":"NPS","score":"Score",
+                     "criterios_mal":"Criterios con Alerta",
+                     "tiene_quejas":"Queja","aspectos_mejorar":"A Mejorar",
+                     "comentario_crit":"Comentario"})
+                 .sort_values(["Score","NPS"]).reset_index(drop=True))
+
+        def cr3(row):
+            p=row.get("Prioridad","")
+            bg=("#FFCCCC" if "Alta" in str(p)
+                else "#FCE4D6" if "Media" in str(p)
+                else "#FFFACC")
+            return [f"background-color:{bg}"]*len(row)
+
+        st.dataframe(tb_show.style.apply(cr3,axis=1),
+                     use_container_width=True,height=380)
+        st.caption(f"Mostrando {len(tb_show)} registros · "
+                   f"Score más negativo = mayor urgencia")
 
 # ── Footer ───────────────────────────────────────────────
 st.markdown("---")
