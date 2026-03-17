@@ -39,7 +39,36 @@ st.markdown("""
   section[data-testid="stSidebar"] h1,h2,h3{color:#fff!important}
   .modebar{display:none!important}
   .block-container{padding-top:1rem;padding-bottom:2rem}
-  .stTabs [data-baseweb="tab"]{font-size:13px;font-weight:600}
+  /* ── Tabs ── */
+  .stTabs [data-baseweb="tab-list"]{
+    gap:4px;
+    background:#F0F4FA;
+    padding:6px 8px;
+    border-radius:10px;
+    border-bottom:none;
+  }
+  .stTabs [data-baseweb="tab"]{
+    font-size:14px;
+    font-weight:700;
+    color:#1F4E79;
+    background:#ffffff;
+    border-radius:8px;
+    padding:8px 20px;
+    border:1.5px solid #D0DCF0;
+    transition:all .15s ease;
+  }
+  .stTabs [data-baseweb="tab"]:hover{
+    background:#D6E4F7;
+    border-color:#1F4E79;
+    color:#12325A;
+  }
+  .stTabs [aria-selected="true"]{
+    background:#1F4E79!important;
+    color:#ffffff!important;
+    border-color:#1F4E79!important;
+    box-shadow:0 2px 8px rgba(31,78,121,.30);
+  }
+  .stTabs [data-baseweb="tab-highlight"]{display:none!important}
 </style>
 """, unsafe_allow_html=True)
 
