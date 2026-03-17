@@ -818,57 +818,6 @@ with t5:
             st.plotly_chart(fh,use_container_width=True,config={"displayModeBar":False})
             st.caption("🔴 Malo  🟠 Regular  🟢 Bueno  🌲 Excelente  (blanco = sin dato para ese criterio)")
 
-        # ── Fila 3: Tendencia 2024→2025 por empresa ─────────────
-        if len(dff["anio"].unique())>1:
-            st.markdown('<p class="sec">Tendencia NPS por Empresa — 2024 vs 2025 (empresas críticas)</p>',
-                        unsafe_allow_html=True)
-            tend_emp=(df_full[df_full["empresa"].isin(top20_emp)]
-                      .groupby(["empresa","anio"])["nps"].mean().round(1).reset_index())
-            tend_piv=tend_emp.pivot(index="empresa",columns="anio",values="nps").reset_index()
-            if 2024 in tend_piv.columns and 2025 in tend_piv.columns:
-                tend_piv=tend_piv.dropna(subset=[2024,2025])
-                tend_piv["delta"]=tend_piv[2025]-tend_piv[2024]
-                tend_piv=tend_piv.sort_values("delta")
-
-                ft=go.Figure()
-                for _,row in tend_piv.iterrows():
-                    col_arrow="#375623" if row["delta"]>=0 else "#C00000"
-                    # Línea de conexión
-                    ft.add_trace(go.Scatter(
-                        x=[row[2024],row[2025]], y=[row["empresa"],row["empresa"]],
-                        mode="lines",
-                        line=dict(color=col_arrow,width=2),
-                        showlegend=False,
-                        hoverinfo="skip",
-                    ))
-                # Puntos 2024
-                ft.add_trace(go.Scatter(
-                    x=tend_piv[2024], y=tend_piv["empresa"],
-                    mode="markers+text",name="2024",
-                    marker=dict(color="#BFBFBF",size=10,symbol="circle"),
-                    text=[str(v) for v in tend_piv[2024]],
-                    textposition="middle left",textfont=dict(size=8,color="#595959"),
-                ))
-                # Puntos 2025
-                tend_piv["arrow_col"]=tend_piv["delta"].apply(
-                    lambda d: "#375623" if d>=0 else "#C00000")
-                ft.add_trace(go.Scatter(
-                    x=tend_piv[2025], y=tend_piv["empresa"],
-                    mode="markers+text",name="2025",
-                    marker=dict(color=tend_piv["arrow_col"],size=10,symbol="circle"),
-                    text=[f"{v} ({d:+.1f})" for v,d in zip(tend_piv[2025],tend_piv["delta"])],
-                    textposition="middle right",textfont=dict(size=8),
-                ))
-                ft.add_vline(x=9,line_dash="dash",line_color="#375623",line_width=1.5,
-                             annotation_text="Meta 9",annotation_font_color="#375623")
-                fl(ft,max(320,len(tend_piv)*22),dict(l=5,r=80,t=10,b=30))
-                ft.update_layout(
-                    xaxis=dict(title="NPS Promedio",range=[5,11]),
-                    yaxis=dict(tickfont=dict(size=9),autorange="reversed"),
-                    legend=dict(orientation="h",y=-0.08,font=dict(size=10)),
-                )
-                st.plotly_chart(ft,use_container_width=True,config={"displayModeBar":False})
-
         # ── Tabla accionable ─────────────────────────────────────
         st.markdown("---")
         st.markdown('<p class="sec">Lista de Acción — ordenada por Prioridad</p>',
