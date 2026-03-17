@@ -1,79 +1,157 @@
 """
 TABLERO DE SATISFACCIÓN DE CLIENTES - QUIMPAC DE COLOMBIA S.A.
 ==============================================================
-Borrador de tablero gerencial y comercial.
+Dashboard interactivo para Streamlit Cloud.
 
-INSTRUCCIONES DE USO:
-  1. Instalar dependencias (solo la primera vez):
-       pip install dash plotly dash-bootstrap-components pandas openpyxl
+Para correr localmente:
+    streamlit run dashboard_satisfaccion.py
 
-  2. Ejecutar el script:
-       python dashboard_satisfaccion.py
-
-  3. Abrir en el navegador:
-       http://127.0.0.1:8050/
+Para Streamlit Cloud:
+    1. Subir este archivo + requirements.txt + Consolidado_Encuestas_Satisfaccion.xlsx
+       al mismo repositorio de GitHub.
+    2. Conectar el repositorio en share.streamlit.io
 """
 
 import os
+import warnings
+warnings.filterwarnings("ignore")
+
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 import plotly.express as px
-from plotly.subplots import make_subplots
-import dash
-from dash import dcc, html, Input, Output, dash_table
-import dash_bootstrap_components as dbc
+import streamlit as st
 
 # ─────────────────────────────────────────────────────────
-# 1. CARGA Y PREPARACIÓN DE DATOS
+# CONFIGURACIÓN DE PÁGINA
 # ─────────────────────────────────────────────────────────
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_FILE  = os.path.join(SCRIPT_DIR, "Consolidado_Encuestas_Satisfaccion.xlsx")
+st.set_page_config(
+    page_title="Satisfacción Clientes · QUIMPAC",
+    page_icon="📋",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 
-df_raw = pd.read_excel(DATA_FILE, header=1)
+# ─────────────────────────────────────────────────────────
+# CSS PERSONALIZADO
+# ─────────────────────────────────────────────────────────
+st.markdown("""
+<style>
+    /* Fondo general */
+    .stApp { background-color: #F0F4F8; }
 
-# Renombrar columnas para uso interno
-RENAME = {
-    "Año":                   "anio",
-    "Tipo de Encuesta":      "tipo",
-    "Empresa / Cliente":     "empresa",
-    "Cargo":                 "cargo",
-    "Nombre Encuestado":     "nombre",
-    "Fecha Encuesta":        "fecha",
-    "Producto Evaluado":     "producto",
-    "Cantidad Entregada":    "c_cantidad",
-    "Tiempo de Entrega":     "c_tiempo_entrega",
-    "Calidad":               "c_calidad",
-    "Precio":                "c_precio",
-    "Apoyo Técnico":         "c_apoyo_tec",
-    "Servicio al Cliente":   "c_servicio",
-    "Tiempo Tránsito":       "c_tiempo_transito",
-    "Doc. Logística":        "c_doc_log",
-    "Servicio Técnico":      "c_servicio_tec",
-    "Soporte Comercial":     "c_soporte",
-    "Mercadeo":              "c_mercadeo",
-    "Devoluciones/Averías":  "c_devoluciones",
-    "Asesoría Vendedor":     "c_asesoria",
-    "Dinámicas Comerciales": "c_dinamicas",
-    "Comentario Criterios":  "comentario_crit",
-    "NPS (0-10)":            "nps",
-    "NPS Comentario":        "nps_comentario",
-    "Tiene Quejas":          "tiene_quejas",
-    "Razón Quejas":          "razon_queja",
-    "Especificación Queja":  "especif_queja",
-    "Gestión Queja":         "gestion_queja",
-    "Aspectos a Mejorar":    "aspectos_mejorar",
-    "Productos Otra Cía":    "prods_otra",
-    "Razón Compra Otra":     "razon_otra",
+    /* Header principal */
+    .header-box {
+        background: linear-gradient(135deg, #1F4E79 0%, #2E75B6 100%);
+        padding: 18px 28px;
+        border-radius: 10px;
+        margin-bottom: 18px;
+        color: white;
+    }
+    .header-box h1 { margin: 0; font-size: 24px; color: white; }
+    .header-box p  { margin: 4px 0 0 0; font-size: 13px; color: #BDD7EE; }
+
+    /* Tarjetas KPI */
+    .kpi-box {
+        background: white;
+        border-radius: 10px;
+        padding: 14px 18px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        text-align: center;
+        min-height: 100px;
+    }
+    .kpi-icon  { font-size: 22px; margin-bottom: 2px; }
+    .kpi-label { font-size: 11px; color: #595959; font-weight: 700;
+                 text-transform: uppercase; letter-spacing: .4px; margin: 0; }
+    .kpi-value { font-size: 30px; font-weight: 800; margin: 2px 0; line-height: 1.1; }
+    .kpi-sub   { font-size: 11px; color: #8E8E8E; margin: 0; }
+
+    /* Sección title */
+    .section-title {
+        font-size: 13px; font-weight: 700; color: #1F4E79;
+        border-left: 4px solid #2E75B6; padding-left: 8px;
+        margin: 8px 0 4px 0;
+    }
+
+    /* Sidebar */
+    section[data-testid="stSidebar"] { background-color: #1F4E79; }
+    section[data-testid="stSidebar"] label,
+    section[data-testid="stSidebar"] .stMarkdown p { color: white !important; }
+    section[data-testid="stSidebar"] h1,
+    section[data-testid="stSidebar"] h2,
+    section[data-testid="stSidebar"] h3 { color: white !important; }
+
+    /* Ocultar toolbar de Plotly */
+    .modebar { display: none !important; }
+
+    /* Remove padding */
+    .block-container { padding-top: 1rem; padding-bottom: 2rem; }
+
+    /* Tabla */
+    .stDataFrame { font-size: 12px; }
+</style>
+""", unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────────────────
+# CARGA DE DATOS
+# ─────────────────────────────────────────────────────────
+@st.cache_data
+def load_data():
+    base = os.path.dirname(os.path.abspath(__file__))
+    path = os.path.join(base, "Consolidado_Encuestas_Satisfaccion.xlsx")
+    df = pd.read_excel(path, header=1)
+    df = df.rename(columns={
+        "Año": "anio", "Tipo de Encuesta": "tipo",
+        "Empresa / Cliente": "empresa", "Cargo": "cargo",
+        "Nombre Encuestado": "nombre", "Fecha Encuesta": "fecha",
+        "Producto Evaluado": "producto",
+        "Cantidad Entregada": "c_cantidad",
+        "Tiempo de Entrega": "c_tiempo_entrega",
+        "Calidad": "c_calidad", "Precio": "c_precio",
+        "Apoyo Técnico": "c_apoyo_tec",
+        "Servicio al Cliente": "c_servicio",
+        "Tiempo Tránsito": "c_tiempo_transito",
+        "Doc. Logística": "c_doc_log",
+        "Servicio Técnico": "c_servicio_tec",
+        "Soporte Comercial": "c_soporte",
+        "Mercadeo": "c_mercadeo",
+        "Devoluciones/Averías": "c_devoluciones",
+        "Asesoría Vendedor": "c_asesoria",
+        "Dinámicas Comerciales": "c_dinamicas",
+        "Comentario Criterios": "comentario_crit",
+        "NPS (0-10)": "nps",
+        "NPS Comentario": "nps_comentario",
+        "Tiene Quejas": "tiene_quejas",
+        "Razón Quejas": "razon_queja",
+        "Especificación Queja": "especif_queja",
+        "Gestión Queja": "gestion_queja",
+        "Aspectos a Mejorar": "aspectos_mejorar",
+        "Productos Otra Cía": "prods_otra",
+        "Razón Compra Otra": "razon_otra",
+    })
+    df["nps"]  = pd.to_numeric(df["nps"], errors="coerce")
+    df["anio"] = df["anio"].astype(int)
+    return df
+
+df_full = load_data()
+
+# ─────────────────────────────────────────────────────────
+# CONSTANTES
+# ─────────────────────────────────────────────────────────
+TIPO_COLORS = {
+    "Químicos Nacional":     "#2E75B6",
+    "Químicos Exportación":  "#70AD47",
+    "Sal Industrial":        "#ED7D31",
+    "Sales Mineralizadas":   "#9E3EA8",
 }
-df = df_raw.rename(columns=RENAME)
-df["nps"] = pd.to_numeric(df["nps"], errors="coerce")
-df["anio"] = df["anio"].astype(int)
-
-# Mapa score → valor numérico para promedios
-SCORE_NUM = {"Excelente": 4, "Bueno": 3, "Regular": 2, "Malo": 1}
-
-CRITERIOS_LABELS = {
+SCORE_COLORS = {
+    "Excelente": "#375623",
+    "Bueno":     "#70AD47",
+    "Regular":   "#ED7D31",
+    "Malo":      "#C00000",
+    "No sabe/ No aplica": "#BFBFBF",
+}
+CRITERIOS = {
     "c_cantidad":        "Cantidad Entregada",
     "c_tiempo_entrega":  "Tiempo de Entrega",
     "c_calidad":         "Calidad",
@@ -90,662 +168,450 @@ CRITERIOS_LABELS = {
     "c_dinamicas":       "Dinámicas Comerciales",
 }
 
-# Colores por tipo de encuesta
-TIPO_COLORS = {
-    "Químicos Nacional":     "#2E75B6",
-    "Químicos Exportación":  "#70AD47",
-    "Sal Industrial":        "#ED7D31",
-    "Sales Mineralizadas":   "#9E3EA8",
-}
-
-SCORE_COLORS = {
-    "Excelente": "#375623",
-    "Bueno":     "#70AD47",
-    "Regular":   "#ED7D31",
-    "Malo":      "#C00000",
-    "No sabe/ No aplica": "#BFBFBF",
-}
-
-# ─────────────────────────────────────────────────────────
-# 2. HELPERS
-# ─────────────────────────────────────────────────────────
-def calcular_nps_cat(nps_val):
-    if pd.isna(nps_val): return "Sin dato"
-    if nps_val >= 9:     return "Promotor"
-    if nps_val >= 7:     return "Neutro"
-    return "Detractor"
-
 def nps_score(serie):
-    """Calcula NPS = %Promotores - %Detractores."""
-    cats  = serie.dropna().apply(calcular_nps_cat)
+    cats  = serie.dropna().apply(lambda v: "P" if v >= 9 else ("N" if v >= 7 else "D"))
     total = len(cats)
     if total == 0: return 0
-    prom = (cats == "Promotor").sum()  / total * 100
-    detr = (cats == "Detractor").sum() / total * 100
-    return round(prom - detr, 1)
-
-def score_numerico(serie):
-    return serie.map(SCORE_NUM).mean()
-
-def kpi_card(titulo, valor, subtitulo="", color="#1F4E79", icon="📊"):
-    return dbc.Card([
-        dbc.CardBody([
-            html.P(f"{icon} {titulo}", className="kpi-title"),
-            html.H3(valor, className="kpi-value", style={"color": color}),
-            html.P(subtitulo, className="kpi-sub"),
-        ])
-    ], className="kpi-card")
+    return round((cats=="P").sum()/total*100 - (cats=="D").sum()/total*100, 1)
 
 # ─────────────────────────────────────────────────────────
-# 3. APP DASH
+# SIDEBAR — FILTROS
 # ─────────────────────────────────────────────────────────
-app = dash.Dash(
-    __name__,
-    external_stylesheets=[dbc.themes.FLATLY],
-    title="Satisfacción Clientes · QUIMPAC",
-    suppress_callback_exceptions=True,
-)
+with st.sidebar:
+    st.markdown("## 🎛️ Filtros")
+    st.markdown("---")
 
-ANIOS   = sorted(df["anio"].unique())
-TIPOS   = ["Todos"] + sorted(df["tipo"].unique())
-
-# ─── LAYOUT ───────────────────────────────────────────────
-app.layout = dbc.Container([
-
-    # HEADER
-    dbc.Row([
-        dbc.Col([
-            html.Div([
-                html.H2("📋 Satisfacción de Clientes", style={"margin": 0, "color": "white"}),
-                html.P("QUIMPAC DE COLOMBIA S.A. · Tablero Gerencial y Comercial",
-                       style={"margin": 0, "color": "#BDD7EE", "fontSize": "13px"}),
-            ])
-        ], width=8),
-        dbc.Col([
-            html.Div([
-                html.Span("Encuestas 2024–2025", style={"color": "#BDD7EE", "fontSize": "12px"}),
-            ], style={"textAlign": "right", "paddingTop": "12px"})
-        ], width=4),
-    ], className="header-bar"),
-
-    # FILTROS
-    dbc.Row([
-        dbc.Col([
-            html.Label("Año de evaluación", className="filter-label"),
-            dcc.Checklist(
-                id="filtro-anio",
-                options=[{"label": f" {a}", "value": a} for a in ANIOS],
-                value=ANIOS,
-                inline=True,
-                className="filter-checklist",
-            ),
-        ], width=3),
-        dbc.Col([
-            html.Label("Tipo de encuesta", className="filter-label"),
-            dcc.Dropdown(
-                id="filtro-tipo",
-                options=[{"label": t, "value": t} for t in TIPOS],
-                value="Todos",
-                clearable=False,
-                style={"fontSize": "13px"},
-            ),
-        ], width=3),
-        dbc.Col([
-            html.Label("Empresa / Cliente", className="filter-label"),
-            dcc.Dropdown(
-                id="filtro-empresa",
-                options=[{"label": "Todas", "value": "Todas"}],
-                value="Todas",
-                clearable=False,
-                style={"fontSize": "13px"},
-            ),
-        ], width=4),
-        dbc.Col([
-            html.Label(" ", className="filter-label"),
-            dbc.Button("🔄 Limpiar filtros", id="btn-reset", color="secondary",
-                       size="sm", className="mt-1", style={"width": "100%"}),
-        ], width=2),
-    ], className="filter-bar"),
-
-    # KPIs
-    dbc.Row(id="row-kpis", className="kpi-row"),
-
-    html.Hr(style={"margin": "8px 0"}),
-
-    # FILA 1: NPS + Distribución scores
-    dbc.Row([
-        dbc.Col(dcc.Graph(id="chart-nps-tipo", config={"displayModeBar": False}), width=5),
-        dbc.Col(dcc.Graph(id="chart-scores-dist", config={"displayModeBar": False}), width=4),
-        dbc.Col(dcc.Graph(id="chart-nps-gauge", config={"displayModeBar": False}), width=3),
-    ]),
-
-    # FILA 2: Criterios + Tendencia
-    dbc.Row([
-        dbc.Col(dcc.Graph(id="chart-criterios", config={"displayModeBar": False}), width=7),
-        dbc.Col(dcc.Graph(id="chart-tendencia", config={"displayModeBar": False}), width=5),
-    ]),
-
-    # FILA 3: Quejas + Aspectos a mejorar
-    dbc.Row([
-        dbc.Col(dcc.Graph(id="chart-quejas-razones", config={"displayModeBar": False}), width=5),
-        dbc.Col(dcc.Graph(id="chart-aspectos", config={"displayModeBar": False}), width=4),
-        dbc.Col(dcc.Graph(id="chart-quejas-tipo", config={"displayModeBar": False}), width=3),
-    ]),
-
-    # FILA 4: Tabla de atención prioritaria
-    dbc.Row([
-        dbc.Col([
-            html.H6("⚠️ Clientes con Calificaciones Regular o Malo — Atención Prioritaria",
-                    className="section-title"),
-            html.Div(id="tabla-criticos"),
-        ], width=12),
-    ], className="mt-2"),
-
-    html.Div(style={"height": "30px"}),
-
-], fluid=True, className="main-container")
-
-
-# ─── CALLBACKS ────────────────────────────────────────────
-def filtrar_df(anios, tipo, empresa):
-    dff = df[df["anio"].isin(anios)] if anios else df.copy()
-    if tipo != "Todos":
-        dff = dff[dff["tipo"] == tipo]
-    if empresa != "Todas":
-        dff = dff[dff["empresa"] == empresa]
-    return dff
-
-
-@app.callback(
-    Output("filtro-empresa", "options"),
-    Output("filtro-empresa", "value"),
-    Input("filtro-anio", "value"),
-    Input("filtro-tipo", "value"),
-    Input("btn-reset", "n_clicks"),
-)
-def update_empresas(anios, tipo, _):
-    dff = df[df["anio"].isin(anios or ANIOS)]
-    if tipo and tipo != "Todos":
-        dff = dff[dff["tipo"] == tipo]
-    empresas = sorted(dff["empresa"].dropna().unique())
-    opts = [{"label": "Todas", "value": "Todas"}] + [{"label": e, "value": e} for e in empresas]
-    return opts, "Todas"
-
-
-@app.callback(
-    Output("filtro-anio", "value"),
-    Output("filtro-tipo", "value"),
-    Input("btn-reset", "n_clicks"),
-    prevent_initial_call=True,
-)
-def reset_filters(_):
-    return ANIOS, "Todos"
-
-
-@app.callback(
-    Output("row-kpis", "children"),
-    Output("chart-nps-tipo", "figure"),
-    Output("chart-scores-dist", "figure"),
-    Output("chart-nps-gauge", "figure"),
-    Output("chart-criterios", "figure"),
-    Output("chart-tendencia", "figure"),
-    Output("chart-quejas-razones", "figure"),
-    Output("chart-aspectos", "figure"),
-    Output("chart-quejas-tipo", "figure"),
-    Output("tabla-criticos", "children"),
-    Input("filtro-anio", "value"),
-    Input("filtro-tipo", "value"),
-    Input("filtro-empresa", "value"),
-)
-def update_all(anios, tipo, empresa):
-    anios = anios or ANIOS
-    dff = filtrar_df(anios, tipo, empresa)
-
-    if dff.empty:
-        empty = go.Figure()
-        empty.add_annotation(text="Sin datos para los filtros seleccionados",
-                             showarrow=False, font=dict(size=14))
-        return [], empty, empty, empty, empty, empty, empty, empty, empty, html.P("Sin datos.")
-
-    # ── KPIs ──────────────────────────────────────────────
-    total    = len(dff)
-    nps_prom = round(dff["nps"].mean(), 1)
-    nps_sc   = nps_score(dff["nps"])
-    pct_exc  = round((dff["c_calidad"] == "Excelente").sum() / dff["c_calidad"].notna().sum() * 100, 1)
-    pct_quej = round((dff["tiene_quejas"] == "Si").sum() / total * 100, 1)
-    tipos_n  = dff["tipo"].nunique()
-
-    kpis = dbc.Row([
-        dbc.Col(kpi_card("Total Encuestas", f"{total:,}", f"{tipos_n} tipos · {len(anios)} año(s)", "#1F4E79", "📋"), width=2),
-        dbc.Col(kpi_card("NPS Promedio", f"{nps_prom}", "Escala 0 – 10", "#2E75B6" if nps_prom >= 9 else "#ED7D31", "⭐"), width=2),
-        dbc.Col(kpi_card("NPS Score", f"{nps_sc:+.0f}%", "Promotores − Detractores", "#375623" if nps_sc >= 50 else "#ED7D31", "📈"), width=2),
-        dbc.Col(kpi_card("Calidad Excelente", f"{pct_exc}%", "De respuestas en Calidad", "#375623", "✅"), width=2),
-        dbc.Col(kpi_card("Con Quejas", f"{pct_quej}%", f"{(dff['tiene_quejas']=='Si').sum()} clientes", "#C00000" if pct_quej > 20 else "#ED7D31", "⚠️"), width=2),
-        dbc.Col(kpi_card("Recomienda Producto", f"{round((dff['nps'] >= 9).sum()/total*100,1)}%", "NPS ≥ 9 (Promotores)", "#2E75B6", "👍"), width=2),
-    ])
-
-    # ── CHART 1: NPS por tipo (barras horizontales) ───────
-    nps_tipo = (
-        dff.groupby("tipo")["nps"].mean().round(1)
-        .reset_index().sort_values("nps", ascending=True)
+    anios_disp = sorted(df_full["anio"].unique())
+    anios_sel  = st.multiselect(
+        "Año de evaluación",
+        options=anios_disp,
+        default=anios_disp,
     )
-    fig_nps_tipo = go.Figure()
+
+    tipos_disp = ["Todos"] + sorted(df_full["tipo"].unique())
+    tipo_sel   = st.selectbox("Tipo de encuesta", tipos_disp)
+
+    # Empresas filtradas por lo anterior
+    dff_prev = df_full[df_full["anio"].isin(anios_sel or anios_disp)]
+    if tipo_sel != "Todos":
+        dff_prev = dff_prev[dff_prev["tipo"] == tipo_sel]
+    empresas_disp = ["Todas"] + sorted(dff_prev["empresa"].dropna().unique())
+    empresa_sel   = st.selectbox("Empresa / Cliente", empresas_disp)
+
+    st.markdown("---")
+    st.caption("📊 QUIMPAC DE COLOMBIA S.A.\nEncuestas 2024 – 2025")
+
+# ─────────────────────────────────────────────────────────
+# FILTRADO PRINCIPAL
+# ─────────────────────────────────────────────────────────
+anios_sel = anios_sel or anios_disp
+dff = df_full[df_full["anio"].isin(anios_sel)]
+if tipo_sel != "Todos":
+    dff = dff[dff["tipo"] == tipo_sel]
+if empresa_sel != "Todas":
+    dff = dff[dff["empresa"] == empresa_sel]
+
+# ─────────────────────────────────────────────────────────
+# HEADER
+# ─────────────────────────────────────────────────────────
+st.markdown("""
+<div class="header-box">
+  <h1>📋 Satisfacción de Clientes</h1>
+  <p>QUIMPAC DE COLOMBIA S.A. · Tablero Gerencial y Comercial · 2024–2025</p>
+</div>
+""", unsafe_allow_html=True)
+
+if dff.empty:
+    st.warning("Sin datos para los filtros seleccionados.")
+    st.stop()
+
+# ─────────────────────────────────────────────────────────
+# KPIs
+# ─────────────────────────────────────────────────────────
+total     = len(dff)
+nps_prom  = round(dff["nps"].mean(), 1)
+nps_sc    = nps_score(dff["nps"])
+crit_cal  = dff["c_calidad"].dropna()
+pct_exc   = round((crit_cal == "Excelente").sum() / len(crit_cal) * 100, 1) if len(crit_cal) else 0
+n_quejas  = (dff["tiene_quejas"] == "Si").sum()
+pct_quej  = round(n_quejas / total * 100, 1)
+pct_prom  = round((dff["nps"] >= 9).sum() / total * 100, 1)
+
+def kpi_html(icon, label, value, sub, color):
+    return f"""
+    <div class="kpi-box">
+      <div class="kpi-icon">{icon}</div>
+      <p class="kpi-label">{label}</p>
+      <p class="kpi-value" style="color:{color};">{value}</p>
+      <p class="kpi-sub">{sub}</p>
+    </div>"""
+
+k1, k2, k3, k4, k5, k6 = st.columns(6)
+k1.markdown(kpi_html("📋", "Total Encuestas", f"{total:,}",
+    f"{dff['tipo'].nunique()} tipos · {len(anios_sel)} año(s)", "#1F4E79"), unsafe_allow_html=True)
+k2.markdown(kpi_html("⭐", "NPS Promedio", f"{nps_prom}",
+    "Escala 0 – 10",
+    "#375623" if nps_prom >= 9 else "#ED7D31"), unsafe_allow_html=True)
+k3.markdown(kpi_html("📈", "NPS Score", f"{nps_sc:+.0f}%",
+    "Promotores − Detractores",
+    "#375623" if nps_sc >= 50 else "#ED7D31"), unsafe_allow_html=True)
+k4.markdown(kpi_html("✅", "Calidad Excelente", f"{pct_exc}%",
+    "De respuestas en Calidad", "#375623"), unsafe_allow_html=True)
+k5.markdown(kpi_html("⚠️", "Con Quejas", f"{pct_quej}%",
+    f"{n_quejas} clientes",
+    "#C00000" if pct_quej > 20 else "#ED7D31"), unsafe_allow_html=True)
+k6.markdown(kpi_html("👍", "Promotores", f"{pct_prom}%",
+    "NPS ≥ 9", "#2E75B6"), unsafe_allow_html=True)
+
+st.markdown("<br>", unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────────────────
+# FILA 1: NPS por tipo · Distribución scores · Gauge
+# ─────────────────────────────────────────────────────────
+col_a, col_b, col_c = st.columns([5, 4, 3])
+
+# — NPS por tipo —
+with col_a:
+    st.markdown('<p class="section-title">NPS Promedio por Tipo de Encuesta</p>', unsafe_allow_html=True)
+    nps_tipo = (dff.groupby("tipo")["nps"].mean().round(1)
+                .reset_index().sort_values("nps", ascending=True))
+    fig1 = go.Figure()
     for _, row in nps_tipo.iterrows():
         color = TIPO_COLORS.get(row["tipo"], "#2E75B6")
-        fig_nps_tipo.add_trace(go.Bar(
-            y=[row["tipo"]], x=[row["nps"]],
-            orientation="h",
+        fig1.add_trace(go.Bar(
+            y=[row["tipo"]], x=[row["nps"]], orientation="h",
             marker_color=color,
-            text=[f"{row['nps']}"],
-            textposition="inside",
-            textfont=dict(color="white", size=11, family="Arial"),
+            text=[f"  {row['nps']}"], textposition="inside",
+            textfont=dict(color="white", size=12, family="Arial Bold"),
             showlegend=False,
-            name=row["tipo"],
         ))
-    fig_nps_tipo.update_layout(
-        title=dict(text="NPS Promedio por Tipo de Encuesta", font=dict(size=13)),
-        xaxis=dict(title="NPS (0-10)", range=[0, 10.5], tickfont=dict(size=11)),
+    fig1.add_vline(x=9, line_dash="dash", line_color="#375623", line_width=2,
+                   annotation_text="Meta 9", annotation_position="top",
+                   annotation_font_color="#375623")
+    fig1.update_layout(
+        xaxis=dict(range=[0, 10.5], tickfont=dict(size=11)),
         yaxis=dict(tickfont=dict(size=11)),
-        height=260, margin=dict(l=10, r=20, t=40, b=30),
+        height=230, margin=dict(l=5, r=15, t=10, b=25),
         plot_bgcolor="white", paper_bgcolor="white",
-        shapes=[dict(type="line", x0=9, x1=9, y0=-0.5, y1=len(nps_tipo)-0.5,
-                     line=dict(color="#375623", width=2, dash="dash"))],
-        annotations=[dict(x=9.05, y=len(nps_tipo)-0.5, xanchor="left",
-                          text="Meta 9", font=dict(color="#375623", size=10), showarrow=False)],
     )
+    st.plotly_chart(fig1, use_container_width=True, config={"displayModeBar": False})
 
-    # ── CHART 2: Distribución de scores (donut) ───────────
-    crit_cols = [c for c in CRITERIOS_LABELS if c in dff.columns]
+# — Donut distribución —
+with col_b:
+    st.markdown('<p class="section-title">Distribución de Calificaciones</p>', unsafe_allow_html=True)
+    crit_cols = [c for c in CRITERIOS if c in dff.columns]
     all_scores = pd.concat([dff[c].dropna() for c in crit_cols])
-    score_counts = all_scores.value_counts().reset_index()
-    score_counts.columns = ["score", "count"]
-    order = ["Excelente", "Bueno", "Regular", "Malo", "No sabe/ No aplica"]
-    score_counts["score"] = pd.Categorical(score_counts["score"], categories=order, ordered=True)
-    score_counts = score_counts.sort_values("score")
+    sc = all_scores.value_counts().reset_index()
+    sc.columns = ["score", "cnt"]
+    order_map = {"Excelente": 0, "Bueno": 1, "Regular": 2, "Malo": 3, "No sabe/ No aplica": 4}
+    sc["ord"] = sc["score"].map(order_map).fillna(9)
+    sc = sc.sort_values("ord")
 
-    fig_dist = go.Figure(go.Pie(
-        labels=score_counts["score"],
-        values=score_counts["count"],
-        hole=0.55,
-        marker_colors=[SCORE_COLORS.get(s, "#999") for s in score_counts["score"]],
-        textinfo="percent",
-        textfont=dict(size=11),
+    fig2 = go.Figure(go.Pie(
+        labels=sc["score"], values=sc["cnt"], hole=0.55,
+        marker_colors=[SCORE_COLORS.get(s, "#999") for s in sc["score"]],
+        textinfo="percent", textfont=dict(size=11),
         hovertemplate="%{label}: %{value} (%{percent})<extra></extra>",
     ))
-    fig_dist.update_layout(
-        title=dict(text="Distribución de Calificaciones", font=dict(size=13)),
+    fig2.update_layout(
         legend=dict(orientation="v", x=1.0, y=0.5, font=dict(size=10)),
-        height=260, margin=dict(l=10, r=10, t=40, b=10),
+        height=230, margin=dict(l=5, r=5, t=10, b=10),
         paper_bgcolor="white",
     )
+    st.plotly_chart(fig2, use_container_width=True, config={"displayModeBar": False})
 
-    # ── CHART 3: Gauge NPS Score ──────────────────────────
-    nps_sc_val = nps_score(dff["nps"])
-    fig_gauge = go.Figure(go.Indicator(
-        mode="gauge+number+delta",
-        value=nps_sc_val,
-        delta={"reference": 50, "valueformat": ".0f"},
-        number={"suffix": "%", "font": {"size": 22}},
-        title={"text": "NPS Score<br><span style='font-size:11px'>Promotores − Detractores</span>",
-               "font": {"size": 13}},
+# — Gauge NPS Score —
+with col_c:
+    st.markdown('<p class="section-title">NPS Score</p>', unsafe_allow_html=True)
+    fig3 = go.Figure(go.Indicator(
+        mode="gauge+number",
+        value=nps_sc,
+        number={"suffix": "%", "font": {"size": 28, "color": "#1F4E79"}},
         gauge={
-            "axis": {"range": [-100, 100], "tickwidth": 1, "tickcolor": "#595959",
-                     "tickfont": {"size": 9}},
-            "bar": {"color": "#2E75B6"},
+            "axis": {"range": [-100, 100], "tickfont": {"size": 9}},
+            "bar": {"color": "#2E75B6", "thickness": 0.25},
             "steps": [
                 {"range": [-100, 0],  "color": "#FFCCCC"},
                 {"range": [0, 50],    "color": "#FFE699"},
                 {"range": [50, 100],  "color": "#C6EFCE"},
             ],
             "threshold": {"line": {"color": "#375623", "width": 3},
-                          "thickness": 0.75, "value": 50},
+                          "thickness": 0.8, "value": 50},
         },
     ))
-    fig_gauge.update_layout(height=260, margin=dict(l=20, r=20, t=40, b=10), paper_bgcolor="white")
+    fig3.update_layout(
+        height=230, margin=dict(l=10, r=10, t=20, b=10),
+        paper_bgcolor="white",
+    )
+    st.plotly_chart(fig3, use_container_width=True, config={"displayModeBar": False})
 
-    # ── CHART 4: Criterios por tipo (barras agrupadas) ────
-    crit_disponibles = {k: v for k, v in CRITERIOS_LABELS.items() if k in dff.columns}
-    records = []
-    for col, label in crit_disponibles.items():
-        for t in dff["tipo"].unique():
-            sub = dff[dff["tipo"] == t][col].dropna()
-            if len(sub) == 0:
-                continue
-            pct_exc_c = (sub == "Excelente").sum() / len(sub) * 100
-            pct_bue_c = (sub == "Bueno").sum()     / len(sub) * 100
-            pct_reg_c = (sub == "Regular").sum()   / len(sub) * 100
-            pct_mal_c = (sub == "Malo").sum()       / len(sub) * 100
-            records.append({"tipo": t, "criterio": label,
-                            "Excelente": pct_exc_c, "Bueno": pct_bue_c,
-                            "Regular": pct_reg_c,   "Malo": pct_mal_c,
-                            "score_num": score_numerico(sub)})
+# ─────────────────────────────────────────────────────────
+# FILA 2: Criterios · Tendencia
+# ─────────────────────────────────────────────────────────
+col_d, col_e = st.columns([7, 5])
 
-    df_crit = pd.DataFrame(records)
-
-    # Promedio general por criterio (todas las filas)
-    crit_avg = []
-    for col, label in crit_disponibles.items():
-        sub = dff[col].dropna()
+# — Barras apiladas por criterio —
+with col_d:
+    st.markdown('<p class="section-title">Calificación por Criterio (% respuestas)</p>',
+                unsafe_allow_html=True)
+    crit_rows = []
+    for col_k, label in CRITERIOS.items():
+        if col_k not in dff.columns: continue
+        sub = dff[col_k].dropna()
         if len(sub) == 0: continue
-        pct_exc_c = (sub == "Excelente").sum() / len(sub) * 100
-        pct_bue_c = (sub == "Bueno").sum()     / len(sub) * 100
-        pct_reg_c = (sub == "Regular").sum()   / len(sub) * 100
-        pct_mal_c = (sub == "Malo").sum()       / len(sub) * 100
-        crit_avg.append({"criterio": label, "Excelente": pct_exc_c,
-                         "Bueno": pct_bue_c, "Regular": pct_reg_c, "Malo": pct_mal_c})
+        row = {"criterio": label}
+        for s in ["Excelente", "Bueno", "Regular", "Malo"]:
+            row[s] = round((sub == s).sum() / len(sub) * 100, 1)
+        crit_rows.append(row)
 
-    df_ca = pd.DataFrame(crit_avg).sort_values("Excelente", ascending=True)
+    df_cr = pd.DataFrame(crit_rows).sort_values("Excelente", ascending=True)
 
-    fig_crit = go.Figure()
-    for score_name, color in [("Excelente","#375623"), ("Bueno","#70AD47"),
-                               ("Regular","#ED7D31"), ("Malo","#C00000")]:
-        if score_name in df_ca.columns:
-            fig_crit.add_trace(go.Bar(
-                y=df_ca["criterio"], x=df_ca[score_name],
-                name=score_name, orientation="h",
-                marker_color=color,
-                text=[f"{v:.0f}%" if v > 3 else "" for v in df_ca[score_name]],
-                textposition="inside", textfont=dict(color="white", size=9),
-            ))
-    fig_crit.update_layout(
+    fig4 = go.Figure()
+    for score_name, color in [("Excelente","#375623"),("Bueno","#70AD47"),
+                               ("Regular","#ED7D31"),("Malo","#C00000")]:
+        if score_name not in df_cr.columns: continue
+        fig4.add_trace(go.Bar(
+            y=df_cr["criterio"], x=df_cr[score_name],
+            name=score_name, orientation="h",
+            marker_color=color,
+            text=[f"{v:.0f}%" if v > 3 else "" for v in df_cr[score_name]],
+            textposition="inside", textfont=dict(color="white", size=9),
+        ))
+    fig4.update_layout(
         barmode="stack",
-        title=dict(text="Calificación por Criterio (% respuestas)", font=dict(size=13)),
-        xaxis=dict(title="%", ticksuffix="%", range=[0, 100]),
+        xaxis=dict(ticksuffix="%", range=[0, 100], tickfont=dict(size=10)),
         yaxis=dict(tickfont=dict(size=10)),
-        legend=dict(orientation="h", y=-0.15, font=dict(size=10)),
-        height=370, margin=dict(l=10, r=10, t=40, b=50),
+        legend=dict(orientation="h", y=-0.12, font=dict(size=10)),
+        height=370, margin=dict(l=5, r=10, t=10, b=50),
         plot_bgcolor="white", paper_bgcolor="white",
     )
+    st.plotly_chart(fig4, use_container_width=True, config={"displayModeBar": False})
 
-    # ── CHART 5: Tendencia NPS 2024 vs 2025 ──────────────
-    if len(anios) > 1:
-        tend = df.groupby(["anio", "tipo"])["nps"].mean().round(1).reset_index()
-        tend = tend[tend["tipo"].isin(dff["tipo"].unique())]
-    else:
-        tend = dff.groupby(["tipo"])["nps"].mean().round(1).reset_index()
-        tend["anio"] = anios[0]
+# — Tendencia NPS —
+with col_e:
+    st.markdown('<p class="section-title">Evolución NPS por Año y Tipo</p>',
+                unsafe_allow_html=True)
+    tipos_activos = dff["tipo"].unique()
+    tend = df_full[df_full["tipo"].isin(tipos_activos)].groupby(["anio","tipo"])["nps"].mean().round(1).reset_index()
 
-    fig_tend = go.Figure()
-    for t in tend["tipo"].unique():
+    fig5 = go.Figure()
+    for t in sorted(tipos_activos):
         sub = tend[tend["tipo"] == t].sort_values("anio")
         color = TIPO_COLORS.get(t, "#595959")
-        fig_tend.add_trace(go.Scatter(
+        fig5.add_trace(go.Scatter(
             x=sub["anio"].astype(str), y=sub["nps"],
-            mode="lines+markers+text",
-            name=t,
-            line=dict(color=color, width=2),
-            marker=dict(size=8, color=color),
+            mode="lines+markers+text", name=t,
+            line=dict(color=color, width=2.5),
+            marker=dict(size=9, color=color),
             text=[f"{v}" for v in sub["nps"]],
-            textposition="top center",
-            textfont=dict(size=10),
+            textposition="top center", textfont=dict(size=10),
         ))
-    fig_tend.add_hline(y=9, line_dash="dash", line_color="#375623",
-                       annotation_text="Meta 9", annotation_position="top right",
-                       annotation_font_color="#375623")
-    fig_tend.update_layout(
-        title=dict(text="Evolución NPS por Año y Tipo", font=dict(size=13)),
-        xaxis=dict(title="Año"),
+    fig5.add_hline(y=9, line_dash="dash", line_color="#375623", line_width=2,
+                   annotation_text="Meta 9", annotation_position="top right",
+                   annotation_font_color="#375623")
+    fig5.update_layout(
+        xaxis=dict(title="Año", tickfont=dict(size=11)),
         yaxis=dict(title="NPS Promedio", range=[7, 10.5]),
-        legend=dict(orientation="v", x=1.0, font=dict(size=9)),
-        height=300, margin=dict(l=10, r=10, t=40, b=30),
+        legend=dict(font=dict(size=10), orientation="v", x=1.0, y=1.0),
+        height=370, margin=dict(l=5, r=5, t=10, b=30),
         plot_bgcolor="white", paper_bgcolor="white",
     )
+    st.plotly_chart(fig5, use_container_width=True, config={"displayModeBar": False})
 
-    # ── CHART 6: Razones de quejas ────────────────────────
-    quejas = dff[dff["tiene_quejas"] == "Si"]["razon_queja"].dropna()
-    # Normalizar razones similares
-    quejas = quejas.str.strip().str.title()
-    qc = quejas.value_counts().head(8).reset_index()
-    qc.columns = ["razon", "count"]
+# ─────────────────────────────────────────────────────────
+# FILA 3: Razones quejas · Aspectos mejorar · Quejas por tipo
+# ─────────────────────────────────────────────────────────
+col_f, col_g, col_h = st.columns([5, 4, 3])
 
-    fig_quejas = go.Figure(go.Bar(
-        x=qc["count"], y=qc["razon"],
-        orientation="h",
-        marker_color="#C00000",
-        text=qc["count"], textposition="outside",
-        textfont=dict(size=10),
+# — Razones de quejas —
+with col_f:
+    st.markdown('<p class="section-title">Principales Razones de Quejas</p>',
+                unsafe_allow_html=True)
+    quejas_df = dff[dff["tiene_quejas"] == "Si"]["razon_queja"].dropna()
+    if len(quejas_df) > 0:
+        qc = quejas_df.str.strip().value_counts().head(8).reset_index()
+        qc.columns = ["razon", "n"]
+        qc = qc.sort_values("n", ascending=True)
+        fig6 = go.Figure(go.Bar(
+            x=qc["n"], y=qc["razon"], orientation="h",
+            marker_color="#C00000",
+            text=qc["n"], textposition="outside", textfont=dict(size=11),
+        ))
+        fig6.update_layout(
+            xaxis=dict(title="N° quejas"),
+            yaxis=dict(tickfont=dict(size=10)),
+            height=300, margin=dict(l=5, r=30, t=10, b=30),
+            plot_bgcolor="white", paper_bgcolor="white",
+        )
+        st.plotly_chart(fig6, use_container_width=True, config={"displayModeBar": False})
+    else:
+        st.success("✅ Sin quejas registradas.")
+
+# — Aspectos a mejorar —
+with col_g:
+    st.markdown('<p class="section-title">Aspectos a Mejorar</p>', unsafe_allow_html=True)
+    asp_s = dff["aspectos_mejorar"].dropna().str.strip().value_counts().head(6).reset_index()
+    asp_s.columns = ["aspecto", "n"]
+    asp_s["pct"] = (asp_s["n"] / asp_s["n"].sum() * 100).round(1)
+    paleta = ["#ED7D31","#FFC000","#2E75B6","#70AD47","#9E3EA8","#595959"]
+
+    fig7 = go.Figure(go.Bar(
+        x=asp_s["aspecto"], y=asp_s["n"],
+        marker_color=paleta[:len(asp_s)],
+        text=[f"{p}%" for p in asp_s["pct"]],
+        textposition="outside", textfont=dict(size=11),
     ))
-    fig_quejas.update_layout(
-        title=dict(text="Principales Razones de Quejas", font=dict(size=13)),
-        xaxis=dict(title="N° de quejas"),
-        yaxis=dict(tickfont=dict(size=10)),
-        height=310, margin=dict(l=10, r=30, t=40, b=30),
-        plot_bgcolor="white", paper_bgcolor="white",
-    )
-
-    # ── CHART 7: Aspectos a mejorar ──────────────────────
-    asp = dff["aspectos_mejorar"].dropna().str.strip().str.title()
-    asp_c = asp.value_counts().head(6).reset_index()
-    asp_c.columns = ["aspecto", "count"]
-    asp_c["pct"] = (asp_c["count"] / asp_c["count"].sum() * 100).round(1)
-
-    fig_asp = go.Figure(go.Bar(
-        x=asp_c["aspecto"], y=asp_c["count"],
-        marker_color=["#ED7D31", "#FFC000", "#2E75B6", "#70AD47", "#9E3EA8", "#595959"],
-        text=[f"{v}%" for v in asp_c["pct"]], textposition="outside",
-        textfont=dict(size=11),
-    ))
-    fig_asp.update_layout(
-        title=dict(text="Aspectos a Mejorar", font=dict(size=13)),
-        xaxis=dict(tickfont=dict(size=10)),
+    fig7.update_layout(
         yaxis=dict(title="Menciones"),
-        height=310, margin=dict(l=10, r=10, t=40, b=40),
+        xaxis=dict(tickfont=dict(size=10), tickangle=-15),
+        height=300, margin=dict(l=5, r=10, t=10, b=50),
         plot_bgcolor="white", paper_bgcolor="white",
     )
+    st.plotly_chart(fig7, use_container_width=True, config={"displayModeBar": False})
 
-    # ── CHART 8: % Quejas por tipo de encuesta ────────────
-    qt = dff.groupby("tipo").apply(
-        lambda x: pd.Series({
-            "Si": (x["tiene_quejas"] == "Si").sum(),
-            "No": (x["tiene_quejas"] == "No").sum(),
-        })
-    ).reset_index()
+# — Quejas Si/No por tipo —
+with col_h:
+    st.markdown('<p class="section-title">Quejas por Tipo</p>', unsafe_allow_html=True)
+    qt = dff.groupby("tipo")["tiene_quejas"].value_counts().unstack(fill_value=0).reset_index()
+    if "Si" not in qt.columns: qt["Si"] = 0
+    if "No" not in qt.columns: qt["No"] = 0
 
-    fig_qt = go.Figure()
-    fig_qt.add_trace(go.Bar(
-        x=qt["tipo"], y=qt["Si"],
-        name="Con queja", marker_color="#C00000",
+    fig8 = go.Figure()
+    fig8.add_trace(go.Bar(
+        x=qt["tipo"], y=qt["Si"], name="Con queja", marker_color="#C00000",
         text=qt["Si"], textposition="inside", textfont=dict(color="white", size=11),
     ))
-    fig_qt.add_trace(go.Bar(
-        x=qt["tipo"], y=qt["No"],
-        name="Sin queja", marker_color="#70AD47",
+    fig8.add_trace(go.Bar(
+        x=qt["tipo"], y=qt["No"], name="Sin queja", marker_color="#70AD47",
         text=qt["No"], textposition="inside", textfont=dict(color="white", size=11),
     ))
-    fig_qt.update_layout(
+    fig8.update_layout(
         barmode="stack",
-        title=dict(text="Quejas por Tipo", font=dict(size=13)),
-        xaxis=dict(tickangle=-20, tickfont=dict(size=9)),
+        xaxis=dict(tickangle=-20, tickfont=dict(size=8)),
         yaxis=dict(title="Clientes"),
-        legend=dict(orientation="h", y=-0.2, font=dict(size=10)),
-        height=310, margin=dict(l=10, r=10, t=40, b=50),
+        legend=dict(orientation="h", y=-0.22, font=dict(size=10)),
+        height=300, margin=dict(l=5, r=5, t=10, b=55),
         plot_bgcolor="white", paper_bgcolor="white",
     )
-
-    # ── TABLA CRÍTICOS ───────────────────────────────────
-    # Registros con Regular o Malo en ALGÚN criterio
-    crit_cols_all = [c for c in CRITERIOS_LABELS if c in dff.columns]
-    mask_bad = dff[crit_cols_all].isin(["Regular", "Malo"]).any(axis=1)
-    mask_nps = dff["nps"] < 8
-    criticos = dff[mask_bad | mask_nps].copy()
-
-    if criticos.empty:
-        tabla_out = dbc.Alert("✅ No hay registros con calificaciones críticas para los filtros seleccionados.",
-                              color="success")
-    else:
-        # Qué criterios son malos
-        def get_bad_crit(row):
-            bads = []
-            for c, lbl in CRITERIOS_LABELS.items():
-                if c in row.index and row[c] in ["Regular", "Malo"]:
-                    bads.append(f"{lbl}: {row[c]}")
-            return " | ".join(bads) if bads else "—"
-
-        criticos["Criterios Críticos"] = criticos[crit_cols_all + list(CRITERIOS_LABELS.keys())].apply(
-            lambda r: " | ".join([f"{CRITERIOS_LABELS[c]}: {r[c]}" for c in crit_cols_all if c in r.index and r[c] in ["Regular","Malo"]]),
-            axis=1
-        )
-
-        tabla_df = criticos[[
-            "tipo", "anio", "empresa", "producto", "nps",
-            "Criterios Críticos", "comentario_crit", "tiene_quejas", "razon_queja"
-        ]].rename(columns={
-            "tipo": "Tipo", "anio": "Año", "empresa": "Empresa",
-            "producto": "Producto", "nps": "NPS",
-            "comentario_crit": "Comentario",
-            "tiene_quejas": "¿Queja?", "razon_queja": "Razón Queja",
-        }).sort_values(["NPS", "Empresa"])
-
-        tabla_out = dash_table.DataTable(
-            data=tabla_df.to_dict("records"),
-            columns=[{"name": c, "id": c} for c in tabla_df.columns],
-            page_size=8,
-            sort_action="native",
-            filter_action="native",
-            style_table={"overflowX": "auto"},
-            style_cell={
-                "fontFamily": "Arial", "fontSize": "11px",
-                "padding": "5px 8px", "textAlign": "left",
-                "maxWidth": "200px", "overflow": "hidden",
-                "textOverflow": "ellipsis",
-            },
-            style_header={
-                "backgroundColor": "#1F4E79", "color": "white",
-                "fontWeight": "bold", "fontSize": "11px",
-            },
-            style_data_conditional=[
-                {"if": {"filter_query": '{NPS} < 8'},
-                 "backgroundColor": "#FFCCCC"},
-                {"if": {"filter_query": '{¿Queja?} = "Si"'},
-                 "backgroundColor": "#FCE4D6"},
-                {"if": {"row_index": "odd"},
-                 "backgroundColor": "#F5F5F5"},
-            ],
-            tooltip_data=[
-                {c: {"value": str(row.get(c, "")), "type": "markdown"}
-                 for c in tabla_df.columns}
-                for row in tabla_df.to_dict("records")
-            ],
-            tooltip_duration=None,
-        )
-
-    return kpis, fig_nps_tipo, fig_dist, fig_gauge, fig_crit, fig_tend, fig_quejas, fig_asp, fig_qt, tabla_out
-
+    st.plotly_chart(fig8, use_container_width=True, config={"displayModeBar": False})
 
 # ─────────────────────────────────────────────────────────
-# 4. CSS INLINE
+# FILA 4: Tabla de atención prioritaria
 # ─────────────────────────────────────────────────────────
-app.index_string = """
-<!DOCTYPE html>
-<html>
-<head>
-    {%metas%}
-    <title>{%title%}</title>
-    {%favicon%}
-    {%css%}
-    <style>
-        body { background-color: #F0F4F8; font-family: Arial, sans-serif; }
+st.markdown("---")
+st.markdown('<p class="section-title">⚠️ Clientes con Atención Prioritaria — Calificaciones Regular / Malo o NPS &lt; 8</p>',
+            unsafe_allow_html=True)
 
-        .main-container { padding: 0 12px 20px 12px; max-width: 1600px; }
+crit_all = [c for c in CRITERIOS if c in dff.columns]
+mask_bad = dff[crit_all].isin(["Regular", "Malo"]).any(axis=1)
+mask_nps = dff["nps"] < 8
+criticos = dff[mask_bad | mask_nps].copy()
 
-        .header-bar {
-            background: linear-gradient(135deg, #1F4E79 0%, #2E75B6 100%);
-            padding: 12px 20px;
-            margin: 0 -12px 12px -12px;
-            border-radius: 0;
-        }
+if criticos.empty:
+    st.success("✅ No hay registros críticos para los filtros seleccionados.")
+else:
+    # Construir columna "Criterios Críticos"
+    def get_bad(row):
+        bads = []
+        for c, lbl in CRITERIOS.items():
+            if c in row.index and row[c] in ["Regular", "Malo"]:
+                bads.append(f"{lbl}: {row[c]}")
+        return " | ".join(bads) if bads else "—"
 
-        .filter-bar {
-            background: white;
-            padding: 10px 15px;
-            border-radius: 8px;
-            margin-bottom: 12px;
-            box-shadow: 0 1px 4px rgba(0,0,0,0.1);
-        }
+    criticos["Criterios Críticos"] = criticos.apply(get_bad, axis=1)
 
-        .filter-label {
-            font-size: 11px;
-            font-weight: bold;
-            color: #595959;
-            margin-bottom: 3px;
-        }
+    tabla = criticos[[
+        "tipo", "anio", "empresa", "producto", "nps",
+        "Criterios Críticos", "comentario_crit",
+        "tiene_quejas", "razon_queja", "aspectos_mejorar",
+    ]].rename(columns={
+        "tipo": "Tipo", "anio": "Año", "empresa": "Empresa",
+        "producto": "Producto", "nps": "NPS",
+        "comentario_crit": "Comentario",
+        "tiene_quejas": "Queja", "razon_queja": "Razón Queja",
+        "aspectos_mejorar": "A Mejorar",
+    }).sort_values(["NPS", "Empresa"]).reset_index(drop=True)
 
-        .filter-checklist label {
-            font-size: 13px !important;
-            margin-right: 12px !important;
-        }
+    st.info(f"📌 {len(tabla)} registros requieren atención.")
 
-        .kpi-row { margin-bottom: 10px; }
+    # Color condicional en Streamlit
+    def color_row(row):
+        if row["NPS"] < 8:
+            bg = "background-color: #FFCCCC"
+        elif row["Queja"] == "Si":
+            bg = "background-color: #FCE4D6"
+        else:
+            bg = ""
+        return [bg] * len(row)
 
-        .kpi-card {
-            border-radius: 8px !important;
-            border: none !important;
-            box-shadow: 0 2px 6px rgba(0,0,0,0.1);
-            background: white !important;
-            margin: 0 4px;
-        }
-
-        .kpi-card .card-body { padding: 10px 14px !important; }
-
-        .kpi-title {
-            font-size: 11px;
-            color: #595959;
-            font-weight: bold;
-            margin-bottom: 2px;
-            text-transform: uppercase;
-            letter-spacing: 0.3px;
-        }
-
-        .kpi-value {
-            font-size: 26px;
-            font-weight: bold;
-            margin: 0;
-            line-height: 1.1;
-        }
-
-        .kpi-sub {
-            font-size: 10px;
-            color: #8E8E8E;
-            margin-bottom: 0;
-        }
-
-        .section-title {
-            font-size: 13px;
-            font-weight: bold;
-            color: #1F4E79;
-            border-left: 3px solid #2E75B6;
-            padding-left: 8px;
-            margin: 10px 0 6px 0;
-        }
-
-        .js-plotly-plot .plotly .modebar { display: none; }
-
-        .dash-spreadsheet-container { font-size: 11px; }
-    </style>
-</head>
-<body>
-    {%app_entry%}
-    <footer>
-        {%config%}
-        {%scripts%}
-        {%renderer%}
-    </footer>
-</body>
-</html>
-"""
+    st.dataframe(
+        tabla.style.apply(color_row, axis=1),
+        use_container_width=True,
+        height=320,
+    )
 
 # ─────────────────────────────────────────────────────────
-# 5. PUNTO DE ENTRADA
+# FILA 5: Competencia (si hay datos)
 # ─────────────────────────────────────────────────────────
-if __name__ == "__main__":
-    print("=" * 60)
-    print("  TABLERO SATISFACCIÓN CLIENTES - QUIMPAC DE COLOMBIA")
-    print("=" * 60)
-    print(f"  Registros cargados: {len(df):,}")
-    print(f"  Años: {sorted(df['anio'].unique())}")
-    print(f"  Tipos: {sorted(df['tipo'].unique())}")
-    print("=" * 60)
-    print("  Abriendo en: http://127.0.0.1:8050/")
-    print("  Presiona Ctrl+C para detener el servidor.")
-    print("=" * 60)
-    app.run(debug=False, host="127.0.0.1", port=8050)
+if "prods_otra" in dff.columns:
+    prods_otra = dff["prods_otra"].dropna()
+    prods_otra = prods_otra[prods_otra.str.strip().str.lower() != "ninguno"]
+    if len(prods_otra) > 0:
+        st.markdown("---")
+        col_i, col_j = st.columns([6, 6])
+
+        with col_i:
+            st.markdown('<p class="section-title">Productos que Compran a la Competencia</p>',
+                        unsafe_allow_html=True)
+            poc = prods_otra.str.strip().value_counts().head(10).reset_index()
+            poc.columns = ["producto", "n"]
+            poc["pct"] = (poc["n"] / len(dff) * 100).round(1)
+            fig9 = go.Figure(go.Bar(
+                x=poc["n"], y=poc["producto"], orientation="h",
+                marker_color="#9E3EA8",
+                text=[f"{p}%" for p in poc["pct"]],
+                textposition="outside", textfont=dict(size=10),
+            ))
+            fig9.update_layout(
+                xaxis=dict(title="Menciones"),
+                yaxis=dict(tickfont=dict(size=10)),
+                height=280, margin=dict(l=5, r=40, t=10, b=30),
+                plot_bgcolor="white", paper_bgcolor="white",
+            )
+            st.plotly_chart(fig9, use_container_width=True, config={"displayModeBar": False})
+
+        if "razon_otra" in dff.columns:
+            with col_j:
+                st.markdown('<p class="section-title">Razón Principal para Comprar a Otra Empresa</p>',
+                            unsafe_allow_html=True)
+                raz = dff["razon_otra"].dropna()
+                raz = raz[raz.str.strip().str.lower().isin(
+                    ["n.a", "n.a.", "na", "n/a", "ninguno"]
+                ) == False]
+                if len(raz) > 0:
+                    rc = raz.str.strip().value_counts().head(8).reset_index()
+                    rc.columns = ["razon", "n"]
+                    rc["pct"] = (rc["n"] / rc["n"].sum() * 100).round(1)
+                    fig10 = go.Figure(go.Bar(
+                        x=rc["n"], y=rc["razon"], orientation="h",
+                        marker_color="#FFC000",
+                        text=[f"{p}%" for p in rc["pct"]],
+                        textposition="outside", textfont=dict(size=10),
+                    ))
+                    fig10.update_layout(
+                        xaxis=dict(title="Menciones"),
+                        yaxis=dict(tickfont=dict(size=10)),
+                        height=280, margin=dict(l=5, r=40, t=10, b=30),
+                        plot_bgcolor="white", paper_bgcolor="white",
+                    )
+                    st.plotly_chart(fig10, use_container_width=True, config={"displayModeBar": False})
+
+# ─────────────────────────────────────────────────────────
+# FOOTER
+# ─────────────────────────────────────────────────────────
+st.markdown("---")
+st.caption(
+    f"📊 QUIMPAC DE COLOMBIA S.A. · Tablero de Satisfacción de Clientes · "
+    f"{total} registros · Años: {', '.join(map(str, sorted(anios_sel)))} · "
+    f"Generado automáticamente desde Consolidado_Encuestas_Satisfaccion.xlsx"
+)
