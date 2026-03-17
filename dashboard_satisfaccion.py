@@ -94,25 +94,38 @@ POS = {
     "muy bien":2,"muy bueno":2,"muy buena":2,"bueno":2,"buena":2,
     "buenos":2,"buenas":2,"bien":1,"satisfecho":2,"satisfecha":2,
     "satisfechos":2,"puntual":2,"puntualidad":2,"oportuno":2,"oportuna":2,
-    "eficiente":2,"eficiencia":2,"eficaz":2,"correcto":1,"correcta":1,
-    "cumple":1,"calidad":1,"buena calidad":2,"recomiendo":2,"recomendable":2,
+    "eficiente":2,"eficiencia":2,"eficaz":2,
+    "buena calidad":2,"recomiendo":2,"recomendable":2,
     "agradable":2,"amable":2,"cordial":2,"atento":2,"atenta":2,
     "rapido":2,"rapida":2,"pronto":1,"sin problemas":2,"sin novedad":2,
-    "gracias":1,"contento":2,"contenta":2,"conforme":2,
-    "excelente servicio":3,"buen servicio":2,"cumplimiento":1,
+    "contento":2,"contenta":2,"conforme":2,
+    "excelente servicio":3,"buen servicio":2,
 }
 NEG = {
-    "malo":3,"mala":3,"malos":3,"malas":3,"mal":2,
+    # Calidad baja / servicio deficiente
+    "malo":3,"mala":3,"malos":3,"malas":3,
+    "regular":2,"regulares":2,          # ← en encuestas = mediocre/insatisfactorio
     "deficiente":3,"deficientes":3,"deficiencia":2,
-    "problema":2,"problemas":2,"demora":2,"demoras":2,"demoran":2,
+    # Tiempos
+    "demora":2,"demoras":2,"demoran":2,"demorado":2,
     "retraso":2,"retrasos":2,"tarde":2,"tardanza":2,"atraso":2,
-    "falla":2,"fallas":2,"fallo":2,"incumple":3,"incumplimiento":3,
-    "no cumple":3,"queja":2,"quejas":2,"caro":2,"costoso":2,"costosa":2,
-    "precio alto":2,"lento":2,"lenta":2,"lentitud":2,
-    "insatisfecho":3,"insatisfecha":3,"mejorar":1,"debe mejorar":2,
-    "falta":2,"faltan":2,"error":2,"errores":2,
-    "inconveniente":2,"inconvenientes":2,"dificil":1,"complicado":1,
-    "no llega":2,"no responde":2,"mal servicio":3,
+    "lento":2,"lenta":2,"lentitud":2,
+    # Fallas
+    "falla":2,"fallas":2,"fallo":2,"falló":2,
+    "error":2,"errores":2,"inconveniente":2,"inconvenientes":2,
+    # Incumplimiento
+    "incumple":3,"incumplimiento":3,"no cumple":3,"no llega":2,
+    # Precios
+    "caro":2,"caros":2,"costoso":2,"costosa":2,"precio alto":2,"precios altos":2,
+    # Atención
+    "mal servicio":3,"mala atencion":3,"mala atención":3,
+    "no responde":2,"no atiende":2,"no contesta":2,
+    "complicado":1,"complicada":1,"dificil":1,"difícil":1,
+    # Quejas generales
+    "problema":2,"problemas":2,"queja":2,"quejas":2,
+    "insatisfecho":3,"insatisfecha":3,
+    "falta":2,"faltan":2,"faltó":2,
+    "mejorar":1,"debe mejorar":2,"hay que mejorar":2,
 }
 STOP = {
     "de","la","el","en","y","a","los","del","se","las","un","por","con","no",
@@ -123,22 +136,56 @@ STOP = {
     "e","esto","antes","algunos","unos","yo","otro","otras","tanto","esa",
     "estos","mucho","cual","poco","ella","estar","estas","algunas","algo",
     "nosotros","mi","mis","tu","fue","sido","cada","nuestro","nuestra",
-    "solo","hacia","durante","despues","dicho",
+    "solo","hacia","durante","despues","dicho","none","nan","n/a",
+    "producto","productos","empresa","cliente","clientes","quimpac",
 }
 
+def _limpiar(text):
+    """Limpia el texto: elimina 'None', 'nan', whitespace."""
+    t = re.sub(r'\bnone\b|\bnan\b|\bn/a\b', ' ', str(text).lower())
+    t = re.sub(r'\s+', ' ', t).strip()
+    return t
+
 def sentimiento(text):
-    if pd.isna(text) or str(text).strip() in ("","nan","N/A","n/a"): return None
-    t = str(text).lower()
+    if pd.isna(text): return None
+    t = _limpiar(text)
+    if len(t) < 6: return None          # texto demasiado corto → no clasificar
     p = sum(v for k,v in POS.items() if k in t)
     n = sum(v for k,v in NEG.items() if k in t)
     if p==0 and n==0: return "Neutro"
     return "Positivo" if p>n else ("Negativo" if n>p else "Neutro")
 
-def word_freq(series, top=15):
-    txt = " ".join(series.dropna().astype(str).str.lower())
+def word_freq(series, top=20):
+    txt = " ".join(series.dropna().astype(str))
+    txt = _limpiar(txt)
     txt = re.sub(r"[^a-z\u00e1\u00e9\u00ed\u00f3\u00fa\u00fc\u00f1\s]"," ",txt)
     words = [w for w in txt.split() if len(w)>3 and w not in STOP]
     return Counter(words).most_common(top)
+
+def treemap_palabras(series, title, colorscale):
+    """Genera un Plotly Treemap de frecuencia de palabras (estilo nube)."""
+    wf = word_freq(series)
+    if not wf:
+        return None
+    df_w = pd.DataFrame(wf, columns=["palabra","freq"])
+    fig = go.Figure(go.Treemap(
+        labels=df_w["palabra"],
+        parents=[""] * len(df_w),
+        values=df_w["freq"],
+        textinfo="label+value",
+        textfont=dict(size=14, family="Segoe UI, Arial"),
+        marker=dict(
+            colors=df_w["freq"],
+            colorscale=colorscale,
+            showscale=False,
+        ),
+        hovertemplate="<b>%{label}</b><br>Frecuencia: %{value}<extra></extra>",
+    ))
+    fig.update_layout(
+        height=380, margin=dict(l=5,r=5,t=12,b=5),
+        paper_bgcolor="white",
+    )
+    return fig
 
 def nps_sc(s):
     cats = s.dropna().apply(lambda v: "P" if v>=9 else("N" if v>=7 else "D"))
@@ -453,8 +500,12 @@ with t4:
         st.info("No hay columnas de texto disponibles.")
     else:
         dtx=dff.copy()
-        dtx["txt_comb"]=(dtx[list(tcp.keys())].fillna("").astype(str)
-                         .agg(" ".join,axis=1).str.strip())
+        # Combinar columnas de texto limpiando None/nan antes de unir
+        dtx["txt_comb"]=(dtx[list(tcp.keys())]
+                         .apply(lambda col: col.apply(
+                             lambda v: "" if pd.isna(v) else _limpiar(str(v))))
+                         .agg(" ".join, axis=1)
+                         .str.strip())
         dtx["txt_comb"]=dtx["txt_comb"].replace("",pd.NA)
         dtx["sent"]=dtx["txt_comb"].apply(sentimiento)
         sv=dtx.dropna(subset=["sent"])
@@ -519,33 +570,25 @@ with t4:
         cW1,cW2=st.columns(2)
 
         with cW1:
-            st.markdown('<p class="sec">Palabras más frecuentes — Comentarios Positivos</p>',
+            st.markdown('<p class="sec">🟩 Mapa de Palabras — Comentarios Positivos</p>',
                         unsafe_allow_html=True)
             pt=sv[sv["sent"]=="Positivo"]["txt_comb"]
             if len(pt)>0:
-                wf=word_freq(pt)
-                if wf:
-                    wd=pd.DataFrame(wf,columns=["w","f"]).sort_values("f",ascending=True)
-                    fw1=go.Figure(go.Bar(x=wd["f"],y=wd["w"],orientation="h",
-                        marker_color="#70AD47",text=wd["f"],textposition="outside"))
-                    fl(fw1,380,dict(l=5,r=30,t=10,b=20))
-                    fw1.update_layout(xaxis=dict(title="Frecuencia"))
+                fw1=treemap_palabras(pt,"Positivos","Greens")
+                if fw1:
                     st.plotly_chart(fw1,use_container_width=True,config={"displayModeBar":False})
+                else:
+                    st.info("Pocas palabras para generar el mapa.")
             else:
                 st.info("Sin comentarios positivos.")
 
         with cW2:
-            st.markdown('<p class="sec">Palabras más frecuentes — Comentarios Negativos</p>',
+            st.markdown('<p class="sec">🟥 Mapa de Palabras — Comentarios Negativos</p>',
                         unsafe_allow_html=True)
             nt2=sv[sv["sent"]=="Negativo"]["txt_comb"]
             if len(nt2)>0:
-                wf2=word_freq(nt2)
-                if wf2:
-                    wd2=pd.DataFrame(wf2,columns=["w","f"]).sort_values("f",ascending=True)
-                    fw2=go.Figure(go.Bar(x=wd2["f"],y=wd2["w"],orientation="h",
-                        marker_color="#C00000",text=wd2["f"],textposition="outside"))
-                    fl(fw2,380,dict(l=5,r=30,t=10,b=20))
-                    fw2.update_layout(xaxis=dict(title="Frecuencia"))
+                fw2=treemap_palabras(nt2,"Negativos","Reds")
+                if fw2:
                     st.plotly_chart(fw2,use_container_width=True,config={"displayModeBar":False})
             else:
                 st.info("Sin comentarios negativos.")
