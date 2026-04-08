@@ -822,7 +822,7 @@ with t5:
                 [1.00,"#375623"],   # Excelente
             ]
             label_map={1:"Malo",2:"Regular",3:"Bueno",4:"Excelente"}
-            text_heat=hpivot.applymap(lambda v: label_map.get(v,"") if pd.notna(v) else "")
+            text_heat=hpivot.map(lambda v: label_map.get(v,"") if pd.notna(v) else "")
 
             fh=go.Figure(go.Heatmap(
                 z=hpivot.values,
